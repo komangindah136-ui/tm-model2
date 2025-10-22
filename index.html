@@ -1,0 +1,104 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8" />
+  <title>Teachable Machine + Telegram</title>
+  <script src="https://cdn.jsdelivr.net/npm/@teachablemachine/image@0.8/dist/teachablemachine-image.min.js"></script>
+  <style>
+    body {
+      font-family: sans-serif;
+      padding: 20px;
+      background: #fafafa;
+      color: #111;
+      text-align: center;
+    }
+    #container {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 10px;
+    }
+    canvas {
+      border-radius: 10px;
+      box-shadow: 0 6px 18px rgba(0, 0, 0, 0.08);
+    }
+    #status {
+      font-weight: 600;
+      margin-top: 10px;
+    }
+  </style>
+</head>
+<body>
+  <h2>Teachable Machine → WebHook → Telegram</h2>
+  <div id="container"></div>
+  <p id="status">Memuat model...</p>
+
+  <script>
+  // ================== KONFIGURASI ==================
+  const MODEL_URL = "https://komangindah136-ui.github.io/tm-model/"; 
+  const WEBHOOK_URL = "https://script.google.com/a/macros/smp.belajar.id/s/AKfycbygP1BEsLuoTIPd6pKeyjNBjQ8207ag2L7Wi-dDwFzCPcE-pd0yg6bGwQ3YuNjGQb-Z/exec"; 
+  const TARGET_CLASS = "Lampu Menyala"; // ganti sesuai nama kelas
+  const THRESHOLD = 0.80; 
+  const MIN_SEND_INTERVAL = 5000; // 5 detik antar pesan
+
+  // ================== IMPLEMENTASI ==================
+  let model, webcam, maxPredictions;
+  let lastSent = 0;
+  const statusEl = document.getElementById("status");
+  const container = document.getElementById("container");
+
+  async function init() {
+    const modelURL = MODEL_URL + "model.json";
+    const metadataURL = MODEL_URL + "metadata.json";
+    model = await tmImage.load(modelURL, metadataURL);
+    maxPredictions = model.getTotalClasses();
+
+    webcam = new tmImage.Webcam(400, 300, true);
+    await webcam.setup();
+    await webcam.play();
+    container.appendChild(webcam.canvas);
+
+    statusEl.innerText = "Model siap. Menjalankan deteksi...";
+    runLoop();
+  }
+
+  async function runLoop() {
+    while (true) {
+      webcam.update();
+      await predictAndSend();
+      await sleep(100);
+    }
+  }
+
+  async function predictAndSend() {
+    const predictions = await model.predict(webcam.canvas);
+    const top = predictions.reduce((a, b) =>
+      a.probability > b.probability ? a : b
+    );
+
+    statusEl.innerText = `Status: ${top.className} (${(top.probability * 100).toFixed(1)}%)`;
+
+    if (top.className === TARGET_CLASS && top.probability >= THRESHOLD) {
+      const now = Date.now();
+      if (now - lastSent >= MIN_SEND_INTERVAL) {
+        lastSent = now;
+        sendToWebhook(`${TARGET_CLASS} (${(top.probability * 100).toFixed(1)}%)`);
+      }
+    }
+  }
+
+  function sendToWebhook(msg) {
+    const url = `${WEBHOOK_URL}?msg=${encodeURIComponent(msg)}`;
+    fetch(url)
+      .then(() => console.log("Pesan dikirim:", msg))
+      .catch((err) => console.error("Gagal mengirim webhook:", err));
+  }
+
+  function sleep(ms) {
+    return new Promise((resolve) => setTimeout(resolve, ms));
+  }
+
+  init();
+  </script>
+</body>
+</html>
